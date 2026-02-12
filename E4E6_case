@@ -1,0 +1,96 @@
+# SageMath
+
+from sage.all import *
+from sage.modular.modform.eis_series import eisenstein_series_qexp
+
+# ------------------------------------------------------------------
+# Global cache for consistent embeddings
+# ------------------------------------------------------------------
+_embedding_cache = {}
+
+def sturm_bound_level1(k):
+    """Sturm bound for SL2(Z) cusp forms"""
+    return k // 12
+
+def cusp_eigenforms_level1(k, prec, R):
+    """
+    Return list of (label, qexp) for normalized cuspidal Hecke eigenforms
+    (level-1 newforms) of weight k, with coefficients embedded consistently.
+    """
+    forms = []
+    if k % 2 != 0 or k < 12:
+        return forms
+
+    S = CuspForms(1, k)
+    for i, nf in enumerate(S.newforms('a')):
+        f = nf.q_expansion(prec)
+        K = f.base_ring()
+
+        # Reuse embedding if already chosen
+        if K not in _embedding_cache:
+            _embedding_cache[K] = K.embeddings(QQbar)[0]
+
+        fq = f.map_coefficients(_embedding_cache[K])
+        forms.append((f"newform_{k}_{i}", fq))
+    return forms
+
+def proportional(left, right, B):
+    """
+    Check if left and right power series are proportional up to scalar
+    using coefficients 1..B. Returns scalar if so, None otherwise.
+    """
+    # Find first nonzero coefficient of right
+    for n in range(1, B + 1):
+        if right[n] != 0:
+            c = left[n] / right[n]
+            # Check all coefficients up to B
+            if all(left[m] == c * right[m] for m in range(1, B + 1)):
+                return c
+            else:
+                return None
+    return None  # right is zero (should not happen)
+
+def find_E4f_equals_E6g_cusp(max_weight=56):
+    hits = []
+
+    for kf in range(12, max_weight, 2):
+        kg = kf - 2
+        if kg < 12:
+            continue
+
+        # Weight of the product
+        weight = kf + 4
+        B = sturm_bound_level1(weight)
+        prec = B + 10  # cushion beyond Sturm bound
+
+        # Power series ring over QQbar
+        R = PowerSeriesRing(QQbar, 'q', default_prec=prec)
+
+        # Eisenstein series
+        E4_prec = eisenstein_series_qexp(4, prec).change_ring(QQbar)
+        E6_prec = eisenstein_series_qexp(6, prec).change_ring(QQbar)
+
+        # Cuspidal newforms
+        f_list = cusp_eigenforms_level1(kf, prec, R)
+        g_list = cusp_eigenforms_level1(kg, prec, R)
+
+        for f_name, f in f_list:
+            left = E4_prec * f
+            for g_name, g in g_list:
+                right = E6_prec * g
+
+                # Check proportionality up to Sturm bound
+                c = proportional(left, right, B)
+                if c is not None:
+                    hits.append((kf, f_name, kg, g_name, c))
+
+    return hits
+
+# ------------------------------------------------------------------
+# Run it
+# ------------------------------------------------------------------
+hits = find_E4f_equals_E6g_cusp(max_weight=56)
+
+print("Solutions (wt(f), f, wt(g), g, scalar c):")
+for h in hits:
+    print(h)
